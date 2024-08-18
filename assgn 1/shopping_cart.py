@@ -1,7 +1,5 @@
 import random
 from time import sleep
-from DB import user_db,admin_db,product_catalog,cart
-from cart import *
 
 #Logic for user login
 def user_login():
