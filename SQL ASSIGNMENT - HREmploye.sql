@@ -96,6 +96,9 @@ SET AGE_BAND_COUNT = (
     FROM EmployeeData AS ed2
     WHERE ed2.CF_age_band = EmployeeData.CF_age_band
 )
+SELECT CF_age_band, COUNT(*) as AGE_BAND_COUNT
+FROM EmployeeData
+GROUP BY CF_age_band
 
 --e) Compare all marital status of employee and find the most frequent marital status
 SELECT TOP(1) MaritalStatus,COUNT(*) AS Marital_count
@@ -138,8 +141,8 @@ FROM EmployeeData
 
 --j) Calculate the running total of 'Total Working Years' for each employee within each 
 --department and age band.
-SELECT Department,AGE_BAND,TotalWorkingYears,
-SUM(TotalWorkingYears) OVER(PARTITION BY Department,AGE_BAND
+SELECT Department,CF_age_band,TotalWorkingYears,
+SUM(TotalWorkingYears) OVER(PARTITION BY Department,CF_age_band
 ORDER BY TotalWorkingYears ROWS BETWEEN UNBOUNDED PRECEDING
 AND CURRENT ROW) AS TotalWorkYrSum
 FROM EmployeeData
@@ -155,6 +158,7 @@ FROM EmployeeData LEFT JOIN
 	GROUP BY Department
 ) as dept 
 ON dept.Department = EmployeeData.Department
+ORDER BY emp_no
 
 --l) Rank the departments by the average monthly income of employees who have left.
 SELECT Department,AvgMonthlyIncome,
@@ -176,7 +180,6 @@ ORDER BY marital_count DESC
 --			 MAJORITY OF EMOPLOYEES WHO LEFT THE COMPANY ARE SINGLE.
 
 --n) Show the Department with Highest Attrition Rate (Percentage)
-
 SELECT TOP(1) Department, 
 (COUNT(CASE
 	WHEN Attrition = 'Yes' THEN 1
@@ -196,12 +199,15 @@ FROM EmployeeData
 SELECT JobRole, MonthlyIncome
 FROM(
 	SELECT JobRole,MonthlyIncome,
-	PERCENTILE_CONT(.25) WITHIN GROUP(ORDER BY MonthlyIncome) OVER() AS Q1,
-	PERCENTILE_CONT(.5) WITHIN GROUP(ORDER BY MonthlyIncome) OVER() AS Q2,
-	PERCENTILE_CONT(.75) WITHIN GROUP(ORDER BY MonthlyIncome) OVER() AS Q3
+	PERCENTILE_CONT(.25) WITHIN GROUP(ORDER BY MonthlyIncome) OVER(PARTITION BY JobRole)
+	AS Q1,
+	PERCENTILE_CONT(.5) WITHIN GROUP(ORDER BY MonthlyIncome) OVER(PARTITION BY JobRole) 
+	AS Q2,
+	PERCENTILE_CONT(.75) WITHIN GROUP(ORDER BY MonthlyIncome) OVER(PARTITION BY JobRole) 
+	AS Q3
 	FROM EmployeeData
 ) _
-WHERE MonthlyIncome < Q1 - (Q3 - Q1) * 1.5 OR MonthlyIncome > (Q3 + (Q3 - Q1))
+WHERE MonthlyIncome < Q1 - ((Q3 - Q1) * 1.5) OR MonthlyIncome > Q3 + (1.5 * (Q3 - Q1))
 
 -- q) Gender distribution within each job role, show each job role with its gender domination. 
 --[Male_Domination or Female_Domination]
@@ -220,6 +226,7 @@ SELECT emp_no,TrainingTimesLastYear,
 PERCENT_RANK() OVER(ORDER BY TrainingTimesLastYear)
 AS training_percentage
 FROM EmployeeData
+ORDER BY training_percentage DESC
 
 --s) Divide employees into 5 groups based on training times last year [Use NTILE ()]
 SELECT emp_no,TrainingTimesLastYear,
@@ -269,5 +276,16 @@ AS 'Stock RANK'
 FROM EmployeeData
 
 --x) Find key reasons for Attrition in Company
-SELECT Attrition,MaritalStatus,Age,JobSatisfaction,MonthlyRate
+SELECT JobRole,Department,
+AVG(YearsAtCompany) Company_year_Count,
+AVG(YearsSinceLastPromotion) year_since_promotion_Count,
+AVG(WorkLifeBalance) worklife_avg,
+AVG(PercentSalaryHike) hike_percent,
+AVG(MonthlyIncome) income_avg,
+AVG(EnvironmentSatisfaction) env_satisfaction,
+COUNT(CASE WHEN Attrition = 'Yes' THEN 1 END) Attrition_rate,
+COUNT(CASE WHEN Attrition = 'Yes' THEN 1 END)*100/ COUNT(*) Attrition_percent
+
 FROM EmployeeData
+GROUP BY JobRole,Department
+ORDER BY Attrition_percent DESC
