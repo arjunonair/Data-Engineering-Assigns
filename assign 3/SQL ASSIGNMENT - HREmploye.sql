@@ -77,30 +77,26 @@ AND CURRENT ROW) AS TotalWorkYrSum
 FROM EmployeeData
 WHERE TotalWorkingYears > 0
 
--- c) Which gender have higher strength as workforce in each departmentSELECT Department,Gender,Gender_count FROM(SELECT Department,Gender,COUNT(*) AS Gender_count,RANK() OVER(PARTITION BY Department ORDER BY COUNT(*) DESC)AS Gender_rankFROM EmployeeDataGROUP BY Department,Gender) _WHERE Gender_rank = 1--d) Create a new column AGE_BAND and Show Distribution of Employee's Age band group
-SELECT Age,
-CASE
-	WHEN Age > 55 THEN 'Above 55'
-	WHEN Age > 44 THEN '45-55'
-	WHEN Age > 34 THEN '35-44'
-	WHEN Age > 24 THEN '25-34'
-	ELSE 'Below 25'
-END AS AGE_BAND
+-- c) Which gender have higher strength as workforce in each department
+SELECT Department,Gender,Gender_count FROM
+(SELECT Department,Gender,COUNT(*) AS Gender_count,
+RANK() OVER(PARTITION BY Department ORDER BY COUNT(*) DESC)
+AS Gender_rank
 FROM EmployeeData
+GROUP BY Department,Gender) _
+WHERE Gender_rank = 1
 
+--d) Create a new column AGE_BAND and Show Distribution of Employee's Age band group
 ALTER TABLE EmployeeData
-ADD AGE_BAND VARCHAR(20);
+ADD AGE_BAND_COUNT INT;
 
 UPDATE EmployeeData
-SET AGE_BAND = 
-CASE
-	WHEN Age > 55 THEN 'Above 55'
-	WHEN Age > 44 THEN '45-55'
-	WHEN Age > 34 THEN '35-44'
-	WHEN Age > 24 THEN '25-34'
-	ELSE 'Below 25'
-END
- 
+SET AGE_BAND_COUNT = (
+    SELECT COUNT(*)
+    FROM EmployeeData AS ed2
+    WHERE ed2.CF_age_band = EmployeeData.CF_age_band
+)
+
 --e) Compare all marital status of employee and find the most frequent marital status
 SELECT TOP(1) MaritalStatus,COUNT(*) AS Marital_count
 FROM EmployeeData
@@ -126,10 +122,13 @@ ORDER BY Attrition_percent DESC
 SELECT *
 FROM EmployeeData
 
-SELECT JobRole,PerformanceRating,YearsInCurrentRole
+SELECT JobRole,PerformanceRating,YearsInCurrentRole,YearsAtCompany,YearsSinceLastPromotion,
+	JobInvolvement,TrainingTimesLastYear
 FROM EmployeeData
-GROUP BY JobRole,PerformanceRating,YearsInCurrentRole
-ORDER BY PerformanceRating
+GROUP BY Attrition,JobRole,PerformanceRating,YearsSinceLastPromotion,
+	YearsInCurrentRole,YearsAtCompany,JobInvolvement,TrainingTimesLastYear
+ORDER BY YearsAtCompany
+
 
 --i) Find the rank of employees within each department based on their monthly income
 SELECT emp_no, Department,MonthlyIncome,
@@ -146,7 +145,7 @@ AND CURRENT ROW) AS TotalWorkYrSum
 FROM EmployeeData
 WHERE TotalWorkingYears > 0
 
---Foreach employee who left, calculate the number of years they worked before leaving and 
+--k) Foreach employee who left, calculate the number of years they worked before leaving and 
 --compare it with the average years worked by employees in the same department.
 SELECT emp_no, dept.Department, YearsAtCompany, avg_years_in_dept
 FROM EmployeeData LEFT JOIN 
@@ -193,7 +192,16 @@ AS Moving_average_income
 FROM EmployeeData
 
 -- p) Identify employees with outliers in monthly income within each job role. [ Condition : 
---Monthly_Income < Q1 - (Q3 - Q1) * 1.5 OR Monthly_Income > Q3 + (Q3 - Q1) ]SELECT JobRole, MonthlyIncomeFROM(	SELECT JobRole,MonthlyIncome,	PERCENTILE_CONT(.25) WITHIN GROUP(ORDER BY MonthlyIncome) OVER() AS Q1,	PERCENTILE_CONT(.5) WITHIN GROUP(ORDER BY MonthlyIncome) OVER() AS Q2,	PERCENTILE_CONT(.75) WITHIN GROUP(ORDER BY MonthlyIncome) OVER() AS Q3	FROM EmployeeData) _WHERE MonthlyIncome > Q3 + (Q3 - Q1)
+--Monthly_Income < Q1 - (Q3 - Q1) * 1.5 OR Monthly_Income > Q3 + (Q3 - Q1) ]
+SELECT JobRole, MonthlyIncome
+FROM(
+	SELECT JobRole,MonthlyIncome,
+	PERCENTILE_CONT(.25) WITHIN GROUP(ORDER BY MonthlyIncome) OVER() AS Q1,
+	PERCENTILE_CONT(.5) WITHIN GROUP(ORDER BY MonthlyIncome) OVER() AS Q2,
+	PERCENTILE_CONT(.75) WITHIN GROUP(ORDER BY MonthlyIncome) OVER() AS Q3
+	FROM EmployeeData
+) _
+WHERE MonthlyIncome < Q1 - (Q3 - Q1) * 1.5 OR MonthlyIncome > (Q3 + (Q3 - Q1))
 
 -- q) Gender distribution within each job role, show each job role with its gender domination. 
 --[Male_Domination or Female_Domination]
@@ -244,3 +252,22 @@ ORDER BY PerformanceRating DESC
 --v) Use a CASE WHEN statement to categorize employees into 'Poor', 'Fair', 'Good', or 'Excellent' 
 --work-life balance based on their work-life balance score.
 
+SELECT emp_no,WorkLifeBalance,
+CASE
+	WHEN WorkLifeBalance > 3 THEN 'Excellent WorkLifeBalance'
+	WHEN WorkLifeBalance > 1 THEN 'Fair WorkLifeBalance'
+	ELSE 'Poor WorkLifeBalance'
+END AS 'WorkLifeBalance Ranking'
+FROM EmployeeData
+ORDER BY PerformanceRating DESC
+
+
+--w) Group employees into 3 groups based on their stock option level using the [NTILE] function.
+SELECT StockOptionLevel,
+NTILE(3) OVER(ORDER BY StockOptionLevel DESC)
+AS 'Stock RANK'
+FROM EmployeeData
+
+--x) Find key reasons for Attrition in Company
+SELECT Attrition,MaritalStatus,Age,JobSatisfaction,MonthlyRate
+FROM EmployeeData
