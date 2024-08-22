@@ -125,12 +125,20 @@ ORDER BY Attrition_percent DESC
 SELECT *
 FROM EmployeeData
 
-SELECT JobRole,PerformanceRating,YearsInCurrentRole,YearsAtCompany,YearsSinceLastPromotion,
-	JobInvolvement,TrainingTimesLastYear
-FROM EmployeeData
-GROUP BY Attrition,JobRole,PerformanceRating,YearsSinceLastPromotion,
-	YearsInCurrentRole,YearsAtCompany,JobInvolvement,TrainingTimesLastYear
-ORDER BY YearsAtCompany
+SELECT 
+    PerformanceRating,
+	JobLevel,
+    AVG(YearsSinceLastPromotion) AS AvgYearsSinceLastPromotion,
+    AVG(YearsAtCompany) AS AvgYearsAtCompany,
+	AVG(TrainingTimesLastYear) AS AvgTrainingTime,
+    AVG(PerformanceRating) AS AvgPerformanceRating,
+    COUNT(*) AS TotalEmployees
+FROM 
+    EmployeeData
+GROUP BY 
+    PerformanceRating,JobLevel
+ORDER BY 
+    PerformanceRating DESC;
 
 
 --i) Find the rank of employees within each department based on their monthly income
@@ -161,15 +169,13 @@ ON dept.Department = EmployeeData.Department
 ORDER BY emp_no
 
 --l) Rank the departments by the average monthly income of employees who have left.
-SELECT Department,AvgMonthlyIncome,
-RANK() OVER(ORDER BY AvgMonthlyIncome DESC)
-AS Avg_income_rank
-FROM (
-	SELECT Department,avg(MonthlyIncome) AvgMonthlyIncome
-	FROM EmployeeData
-	WHERE Attrition = 'Yes'
-	GROUP BY Department
-) AS _
+
+SELECT Department,avg(MonthlyIncome) AvgMonthlyIncome,
+RANK() OVER(ORDER BY avg(MonthlyIncome) DESC)
+FROM EmployeeData
+WHERE Attrition = 'Yes'
+GROUP BY Department
+
 
 --m) Find the if there is any relation between Attrition Rate and Marital Status of Employee.
 SELECT MaritalStatus,Attrition,COUNT(*) as marital_count
@@ -196,9 +202,9 @@ FROM EmployeeData
 
 -- p) Identify employees with outliers in monthly income within each job role. [ Condition : 
 --Monthly_Income < Q1 - (Q3 - Q1) * 1.5 OR Monthly_Income > Q3 + (Q3 - Q1) ]
-SELECT JobRole, MonthlyIncome
+SELECT emp_no,JobRole, MonthlyIncome
 FROM(
-	SELECT JobRole,MonthlyIncome,
+	SELECT emp_no,JobRole,MonthlyIncome,
 	PERCENTILE_CONT(.25) WITHIN GROUP(ORDER BY MonthlyIncome) OVER(PARTITION BY JobRole)
 	AS Q1,
 	PERCENTILE_CONT(.5) WITHIN GROUP(ORDER BY MonthlyIncome) OVER(PARTITION BY JobRole) 
@@ -275,17 +281,125 @@ NTILE(3) OVER(ORDER BY StockOptionLevel DESC)
 AS 'Stock RANK'
 FROM EmployeeData
 
+
 --x) Find key reasons for Attrition in Company
-SELECT JobRole,Department,
-AVG(YearsAtCompany) Company_year_Count,
-AVG(YearsSinceLastPromotion) year_since_promotion_Count,
-AVG(WorkLifeBalance) worklife_avg,
-AVG(PercentSalaryHike) hike_percent,
-AVG(MonthlyIncome) income_avg,
-AVG(EnvironmentSatisfaction) env_satisfaction,
-COUNT(CASE WHEN Attrition = 'Yes' THEN 1 END) Attrition_rate,
-COUNT(CASE WHEN Attrition = 'Yes' THEN 1 END)*100/ COUNT(*) Attrition_percent
+create view TEST_QUERY
+AS 
+SELECT Department,
+	   JobRole,
+	   BusinessTravel,
+	   EducationField,
+	   COUNT(*) AS TotalEmployees,
+	   SUM(CASE WHEN Attrition = 'Yes' THEN 1 ELSE 0 END) 
+	   AS TotalAttrition,
+	  (SUM(CASE WHEN Attrition = 'Yes' THEN 1 ELSE 0 END) * 100.0 / COUNT(*)) 
+	   AS AttritionRate,
+	   AVG(MonthlyIncome) AS AvgMonthlyIncome,
+	   AVG(DistanceFromHome) AS AvgDistanceFromHome,
+	   AVG(JobSatisfaction) AS AvgJobSatisfaction,
+	   AVG(YearsAtCompany) AS AvgYearsAtCompany
 
 FROM EmployeeData
-GROUP BY JobRole,Department
-ORDER BY Attrition_percent DESC
+GROUP BY Department,JobRole,BusinessTravel,EducationField
+ORDER BY AttritionRate DESC,AvgJobSatisfaction ASC
+
+
+SELECT
+	Department,
+    COUNT(*) AS TotalEmployees,
+    SUM(CASE WHEN Attrition = 'Yes' THEN 1 ELSE 0 END) AS TotalAttrition,
+    (SUM(CASE WHEN Attrition = 'Yes' THEN 1 ELSE 0 END) * 100.0 / COUNT(*)) 
+	AS AttritionRate,
+    AVG(CASE WHEN Attrition = 'Yes' THEN MonthlyIncome ELSE NULL END)
+	AS Income_Yes_,
+    AVG(CASE WHEN Attrition = 'No' THEN MonthlyIncome ELSE NULL END)
+	AS Income_No,
+    AVG(CASE WHEN Attrition = 'Yes' THEN DistanceFromHome ELSE NULL END)
+	AS DistanceFrom_Home_Yes,
+    AVG(CASE WHEN Attrition = 'No' THEN DistanceFromHome ELSE NULL END)
+	AS DistanceFrom_Home_No,
+	AVG(CASE WHEN Attrition = 'Yes' THEN YearsAtCompany ELSE NULL END)
+	AS WorkYears_Yes,
+    AVG(CASE WHEN Attrition = 'No' THEN YearsAtCompany ELSE NULL END)
+	AS WorkYears_No,
+	AVG(CASE WHEN Attrition = 'Yes' THEN YearsInCurrentRole ELSE NULL END)
+	AS SameRoleYears_Yes,
+    AVG(CASE WHEN Attrition = 'No' THEN YearsInCurrentRole ELSE NULL END)
+	AS SameRoleYears_No,
+	AVG(CASE WHEN Attrition = 'Yes' THEN WorkLifeBalance ELSE NULL END)
+	AS WorkLife_YesAttrition,
+    AVG(CASE WHEN Attrition = 'No' THEN WorkLifeBalance ELSE NULL END)
+	AS WorkLife_NoAttrition,
+    AVG(CASE WHEN Attrition = 'Yes' THEN JobSatisfaction ELSE NULL END) 
+	AS Satisfaction_YES,
+    AVG(CASE WHEN Attrition = 'No' THEN JobSatisfaction ELSE NULL END)
+	AS Satisfaction_NO
+FROM EmployeeData
+GROUP BY Department
+
+-- INSIGHT : Employees who leave the company generally earn less, have longer distance to travel,
+--and work duration is less across all departments.
+--Sales department has highest attrition rate and R&D has lowest.
+
+
+
+
+
+SELECT
+    Department,
+    JobLevel,
+    TrainingTimesLastYear,
+    JobInvolvement,
+    YearsAtCompany,
+    COUNT(*) AS NumberOfEmployees
+FROM
+    EmployeeData
+GROUP BY
+    Department,
+    JobLevel,
+    TrainingTimesLastYear,
+    JobInvolvement,
+    YearsAtCompany
+ORDER BY
+    Department,
+    JobLevel;
+
+WITH PromotionChance AS (
+    SELECT
+        Department,
+        (SUM(CASE WHEN JobLevel > 1 THEN 1 ELSE 0 END) * 100.0 / COUNT(*)) AS PromotionChance
+    FROM
+        EmployeeData
+    GROUP BY
+        Department
+),
+PromotionFactors AS (
+    SELECT
+        Department,
+        AVG(JobLevel) AS AvgJobLevel,
+        AVG(JobSatisfaction) AS AvgJobSatisfaction,
+        AVG(TrainingTimesLastYear) AS AvgTrainingTimes,
+        AVG(JobInvolvement) AS AvgJobInvolvement,
+        AVG(YearsAtCompany) AS AvgYearsAtCompany
+    FROM
+        EmployeeData
+    WHERE
+        JobLevel > 1
+    GROUP BY
+        Department
+)
+
+SELECT
+    p.Department,
+    p.PromotionChance,
+    f.AvgJobLevel,
+    f.AvgJobSatisfaction,
+    f.AvgTrainingTimes,
+    f.AvgJobInvolvement,
+    f.AvgYearsAtCompany
+FROM
+    PromotionChance p
+JOIN
+    PromotionFactors f
+ON
+    p.Department = f.Department;
