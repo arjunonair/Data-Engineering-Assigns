@@ -96,6 +96,9 @@ SET AGE_BAND_COUNT = (
     FROM EmployeeData AS ed2
     WHERE ed2.CF_age_band = EmployeeData.CF_age_band
 )
+SELECT CF_age_band, COUNT(*) as AGE_BAND_COUNT
+FROM EmployeeData
+GROUP BY CF_age_band
 
 --e) Compare all marital status of employee and find the most frequent marital status
 SELECT TOP(1) MaritalStatus,COUNT(*) AS Marital_count
@@ -122,12 +125,48 @@ ORDER BY Attrition_percent DESC
 SELECT *
 FROM EmployeeData
 
-SELECT JobRole,PerformanceRating,YearsInCurrentRole,YearsAtCompany,YearsSinceLastPromotion,
+--Distribution Of The promoted employees
+SELECT JobRole,JobLevel,PerformanceRating,YearsInCurrentRole,YearsAtCompany,YearsSinceLastPromotion,
 	JobInvolvement,TrainingTimesLastYear
 FROM EmployeeData
-GROUP BY Attrition,JobRole,PerformanceRating,YearsSinceLastPromotion,
-	YearsInCurrentRole,YearsAtCompany,JobInvolvement,TrainingTimesLastYear
-ORDER BY YearsAtCompany
+WHERE YearsSinceLastPromotion > 0
+GROUP BY PerformanceRating,JobLevel,YearsSinceLastPromotion,
+	YearsInCurrentRole,YearsAtCompany,JobInvolvement,TrainingTimesLastYear,JobRole
+
+--Maximum chances of employee getting promoted.
+SELECT 
+    AVG(CASE WHEN YearsSinceLastPromotion > 0 THEN PerformanceRating ELSE NULL END)
+	AS Promoted_performance,
+	AVG(CASE WHEN YearsSinceLastPromotion = 0 THEN PerformanceRating ELSE NULL END)
+	AS Nonpromoted_performance,
+	AVG(CASE WHEN YearsSinceLastPromotion > 0 THEN JobLevel ELSE NULL END)
+	AS Promoted_Joblevel,
+	AVG(CASE WHEN YearsSinceLastPromotion = 0 THEN JobLevel ELSE NULL END)
+	AS Nonpromoted_Joblevel,
+	AVG(CASE WHEN YearsSinceLastPromotion > 0 THEN YearsAtCompany ELSE NULL END)
+	AS Promoted_Experience,
+	AVG(CASE WHEN YearsSinceLastPromotion = 0 THEN YearsAtCompany ELSE NULL END)
+	AS Nonpromoted_Experience,
+	AVG(CASE WHEN YearsSinceLastPromotion > 0 THEN TrainingTimesLastYear ELSE NULL END)
+	AS Promoted_Training,
+	AVG(CASE WHEN YearsSinceLastPromotion = 0 THEN TrainingTimesLastYear ELSE NULL END)
+	AS Nonpromoted_Training,
+	AVG(CASE WHEN YearsSinceLastPromotion > 0 THEN JobInvolvement ELSE NULL END)
+	AS Promoted_Involvement,
+	AVG(CASE WHEN YearsSinceLastPromotion = 0 THEN JobInvolvement ELSE NULL END)
+	AS Nonpromoted_Involvement,
+	(SUM(CASE WHEN YearsSinceLastPromotion > 0 THEN 1 ELSE 0 END) * 100.0 / COUNT(*))
+	AS PromotionRate,
+	AVG(YearsSinceLastPromotion) AS Avg_Promotion_Year, 
+    COUNT(*) AS TotalEmployees
+FROM
+    EmployeeData
+WHERE Attrition = 'No'
+
+--INSIGHTS / ANALYSIS :
+--Employees with higher joblevel , higher experience and better performance has higher chance
+--of getting promoted. The average waiting period of promotion is 2 years. 
+--In the data 61% of employees who is working the company got promoted.
 
 
 --i) Find the rank of employees within each department based on their monthly income
@@ -138,8 +177,8 @@ FROM EmployeeData
 
 --j) Calculate the running total of 'Total Working Years' for each employee within each 
 --department and age band.
-SELECT Department,AGE_BAND,TotalWorkingYears,
-SUM(TotalWorkingYears) OVER(PARTITION BY Department,AGE_BAND
+SELECT Department,CF_age_band,TotalWorkingYears,
+SUM(TotalWorkingYears) OVER(PARTITION BY Department,CF_age_band
 ORDER BY TotalWorkingYears ROWS BETWEEN UNBOUNDED PRECEDING
 AND CURRENT ROW) AS TotalWorkYrSum
 FROM EmployeeData
@@ -147,25 +186,26 @@ WHERE TotalWorkingYears > 0
 
 --k) Foreach employee who left, calculate the number of years they worked before leaving and 
 --compare it with the average years worked by employees in the same department.
-SELECT emp_no, dept.Department, YearsAtCompany, avg_years_in_dept
-FROM EmployeeData LEFT JOIN 
+SELECT emp_no, dept.Department, YearsAtCompany, Avg_Years_In_Dept
+FROM EmployeeData LEFT JOIN
 (
-	SELECT Department, AVG(YearsAtCompany) as avg_years_in_dept
+	SELECT Department, AVG(YearsAtCompany) as Avg_Years_In_Dept
 	FROM EmployeeData
 	GROUP BY Department
 ) as dept 
 ON dept.Department = EmployeeData.Department
+WHERE CF_attrition_label = 'Ex-Employees'
+ORDER BY emp_no
 
 --l) Rank the departments by the average monthly income of employees who have left.
-SELECT Department,AvgMonthlyIncome,
-RANK() OVER(ORDER BY AvgMonthlyIncome DESC)
-AS Avg_income_rank
-FROM (
-	SELECT Department,avg(MonthlyIncome) AvgMonthlyIncome
-	FROM EmployeeData
-	WHERE Attrition = 'Yes'
-	GROUP BY Department
-) AS _
+
+SELECT Department,avg(MonthlyIncome) AvgMonthlyIncome,
+RANK() OVER(ORDER BY avg(MonthlyIncome) DESC)
+AS Income_Rank
+FROM EmployeeData
+WHERE Attrition = 'Yes'
+GROUP BY Department
+
 
 --m) Find the if there is any relation between Attrition Rate and Marital Status of Employee.
 SELECT MaritalStatus,Attrition,COUNT(*) as marital_count
@@ -176,38 +216,41 @@ ORDER BY marital_count DESC
 --			 MAJORITY OF EMOPLOYEES WHO LEFT THE COMPANY ARE SINGLE.
 
 --n) Show the Department with Highest Attrition Rate (Percentage)
-
 SELECT TOP(1) Department, 
 (COUNT(CASE
 	WHEN Attrition = 'Yes' THEN 1
-END) * 100 ) / COUNT(*) AS dept_yes_percent
+END) * 100 ) / COUNT(*) AS Attrition_Percent
 FROM EmployeeData
 GROUP BY Department
-ORDER BY dept_yes_percent DESC
+ORDER BY Attrition_Percent DESC
 
 -- o) Calculate the moving average of monthly income over the past 3 employees for each job role.
-SELECT emp_no,MonthlyIncome,
-AVG(MonthlyIncome) OVER(ORDER BY MonthlyIncome ROWS BETWEEN 2 PRECEDING AND CURRENT ROW)
+SELECT emp_no,MonthlyIncome,JobRole,
+AVG(MonthlyIncome) OVER(PARTITION BY JobRole ORDER BY MonthlyIncome 
+	ROWS BETWEEN 2 PRECEDING AND CURRENT ROW)
 AS Moving_average_income
 FROM EmployeeData
 
 -- p) Identify employees with outliers in monthly income within each job role. [ Condition : 
 --Monthly_Income < Q1 - (Q3 - Q1) * 1.5 OR Monthly_Income > Q3 + (Q3 - Q1) ]
-SELECT JobRole, MonthlyIncome
+SELECT emp_no,JobRole, MonthlyIncome
 FROM(
-	SELECT JobRole,MonthlyIncome,
-	PERCENTILE_CONT(.25) WITHIN GROUP(ORDER BY MonthlyIncome) OVER() AS Q1,
-	PERCENTILE_CONT(.5) WITHIN GROUP(ORDER BY MonthlyIncome) OVER() AS Q2,
-	PERCENTILE_CONT(.75) WITHIN GROUP(ORDER BY MonthlyIncome) OVER() AS Q3
+	SELECT emp_no,JobRole,MonthlyIncome,
+	PERCENTILE_CONT(.25) WITHIN GROUP(ORDER BY MonthlyIncome) OVER(PARTITION BY JobRole)
+	AS Q1,
+	PERCENTILE_CONT(.5) WITHIN GROUP(ORDER BY MonthlyIncome) OVER(PARTITION BY JobRole) 
+	AS Q2,
+	PERCENTILE_CONT(.75) WITHIN GROUP(ORDER BY MonthlyIncome) OVER(PARTITION BY JobRole) 
+	AS Q3
 	FROM EmployeeData
 ) _
-WHERE MonthlyIncome < Q1 - (Q3 - Q1) * 1.5 OR MonthlyIncome > (Q3 + (Q3 - Q1))
+WHERE MonthlyIncome < Q1 - ((Q3 - Q1) * 1.5) OR MonthlyIncome > Q3 + (1.5 * (Q3 - Q1))
 
 -- q) Gender distribution within each job role, show each job role with its gender domination. 
 --[Male_Domination or Female_Domination]
-SELECT JobRole,Gender
+SELECT JobRole,Gender_Count,Gender
 FROM (
-	SELECT JobRole,Gender,
+	SELECT JobRole,Gender,COUNT(*) Gender_Count,
 	RANK() OVER(PARTITION BY JobRole ORDER BY COUNT(*) DESC)
 	AS gender_rank
 	FROM EmployeeData
@@ -220,10 +263,11 @@ SELECT emp_no,TrainingTimesLastYear,
 PERCENT_RANK() OVER(ORDER BY TrainingTimesLastYear)
 AS training_percentage
 FROM EmployeeData
+ORDER BY training_percentage DESC
 
 --s) Divide employees into 5 groups based on training times last year [Use NTILE ()]
 SELECT emp_no,TrainingTimesLastYear,
-NTILE(5) OVER(ORDER BY TrainingTimesLastYear)
+NTILE(5) OVER(ORDER BY TrainingTimesLastYear DESC)
 AS training_tile
 FROM EmployeeData
 
@@ -236,7 +280,6 @@ CASE
 	ELSE 'Infrequent Trainee'
 END AS 'Training Frequency'
 FROM EmployeeData
-ORDER BY TrainingTimesLastYear DESC
 
 --u) Categorize employees as 'High', 'Medium', or 'Low' performers based on their performance 
 --rating, using a CASE WHEN statement.
@@ -247,7 +290,6 @@ CASE
 	ELSE 'Low Performer'
 END AS 'Performance Ranking'
 FROM EmployeeData
-ORDER BY PerformanceRating DESC
 
 --v) Use a CASE WHEN statement to categorize employees into 'Poor', 'Fair', 'Good', or 'Excellent' 
 --work-life balance based on their work-life balance score.
@@ -259,8 +301,6 @@ CASE
 	ELSE 'Poor WorkLifeBalance'
 END AS 'WorkLifeBalance Ranking'
 FROM EmployeeData
-ORDER BY PerformanceRating DESC
-
 
 --w) Group employees into 3 groups based on their stock option level using the [NTILE] function.
 SELECT StockOptionLevel,
@@ -268,6 +308,196 @@ NTILE(3) OVER(ORDER BY StockOptionLevel DESC)
 AS 'Stock RANK'
 FROM EmployeeData
 
+
 --x) Find key reasons for Attrition in Company
-SELECT Attrition,MaritalStatus,Age,JobSatisfaction,MonthlyRate
+
+SELECT Department,
+	   JobRole,
+	   BusinessTravel,
+	   EducationField,
+	   COUNT(*) AS TotalEmployees,
+	   SUM(CASE WHEN Attrition = 'Yes' THEN 1 ELSE 0 END) 
+	   AS TotalAttrition,
+	  (SUM(CASE WHEN Attrition = 'Yes' THEN 1 ELSE 0 END) * 100.0 / COUNT(*)) 
+	   AS AttritionRate,
+	   AVG(MonthlyIncome) AS AvgMonthlyIncome,
+	   AVG(DistanceFromHome) AS AvgDistanceFromHome,
+	   AVG(JobSatisfaction) AS AvgJobSatisfaction,
+	   AVG(YearsAtCompany) AS AvgYearsAtCompany
+
 FROM EmployeeData
+GROUP BY Department,JobRole,BusinessTravel,EducationField
+ORDER BY AttritionRate DESC,AvgJobSatisfaction ASC
+
+
+SELECT
+	Department,
+    COUNT(*) AS TotalEmployees,
+    SUM(CASE WHEN Attrition = 'Yes' THEN 1 ELSE 0 END) AS TotalAttrition,
+    (SUM(CASE WHEN Attrition = 'Yes' THEN 1 ELSE 0 END) * 100.0 / COUNT(*)) 
+	AS AttritionRate,
+    AVG(CASE WHEN Attrition = 'Yes' THEN MonthlyIncome ELSE NULL END)
+	AS Income_Yes_,
+    AVG(CASE WHEN Attrition = 'No' THEN MonthlyIncome ELSE NULL END)
+	AS Income_No,
+    AVG(CASE WHEN Attrition = 'Yes' THEN DistanceFromHome ELSE NULL END)
+	AS DistanceFrom_Home_Yes,
+    AVG(CASE WHEN Attrition = 'No' THEN DistanceFromHome ELSE NULL END)
+	AS DistanceFrom_Home_No,
+	AVG(CASE WHEN Attrition = 'Yes' THEN YearsAtCompany ELSE NULL END)
+	AS WorkYears_Yes,
+    AVG(CASE WHEN Attrition = 'No' THEN YearsAtCompany ELSE NULL END)
+	AS WorkYears_No,
+	AVG(CASE WHEN Attrition = 'Yes' THEN YearsSinceLastPromotion ELSE NULL END)
+	AS Promotion_yr_Yes,
+    AVG(CASE WHEN Attrition = 'No' THEN YearsSinceLastPromotion ELSE NULL END)
+	AS Promotion_yr_No,
+	AVG(CASE WHEN Attrition = 'Yes' THEN WorkLifeBalance ELSE NULL END)
+	AS WorkLife_YesAttrition,
+    AVG(CASE WHEN Attrition = 'No' THEN WorkLifeBalance ELSE NULL END)
+	AS WorkLife_NoAttrition,
+    AVG(CASE WHEN Attrition = 'Yes' THEN JobSatisfaction ELSE NULL END) 
+	AS Satisfaction_YES,
+    AVG(CASE WHEN Attrition = 'No' THEN JobSatisfaction ELSE NULL END)
+	AS Satisfaction_NO
+FROM EmployeeData
+GROUP BY Department
+
+-- INSIGHT : Employees who leave the company generally earn less, have longer distance to travel,
+--work experience is less.Some department doesn't provide proper promotion which is a factor for attrition too.
+--Sales department has highest attrition rate and R&D has lowest.
+
+
+SELECT * FROM EmployeeData
+
+WITH PromotionChance AS (
+    SELECT
+        Department,
+        (SUM(CASE WHEN JobLevel > 1 THEN 1 ELSE 0 END) * 100.0 / COUNT(*)) AS PromotionChance
+    FROM
+        EmployeeData
+    GROUP BY
+        Department
+),
+PromotionFactors AS (
+    SELECT
+        Department,
+        AVG(JobLevel) AS AvgJobLevel,
+        AVG(JobSatisfaction) AS AvgJobSatisfaction,
+        AVG(TrainingTimesLastYear) AS AvgTrainingTimes,
+        AVG(JobInvolvement) AS AvgJobInvolvement,
+        AVG(YearsAtCompany) AS AvgYearsAtCompany
+    FROM
+        EmployeeData
+    WHERE
+        JobLevel > 1
+    GROUP BY
+        Department
+)
+
+SELECT
+    p.Department,
+    p.PromotionChance,
+    f.AvgJobLevel,
+    f.AvgJobSatisfaction,
+    f.AvgTrainingTimes,
+    f.AvgJobInvolvement,
+    f.AvgYearsAtCompany
+FROM
+    PromotionChance p
+JOIN
+    PromotionFactors f
+ON
+    p.Department = f.Department;
+
+
+SELECT *
+FROM EmployeeData
+
+SELECT 
+    PerformanceRating,
+	JobLevel,
+    AVG(YearsSinceLastPromotion) AS AvgYearsSinceLastPromotion,
+    AVG(YearsAtCompany) AS AvgYearsAtCompany,
+	AVG(TrainingTimesLastYear) AS AvgTrainingTime,
+    AVG(PerformanceRating) AS AvgPerformanceRating,
+    COUNT(*) AS TotalEmployees
+FROM 
+    EmployeeData
+GROUP BY 
+    PerformanceRating,JobLevel
+ORDER BY 
+    PerformanceRating DESC;
+
+
+SELECT 
+    Department,
+    JobRole,
+    YearsSinceLastPromotion,
+    COUNT(*) AS Promotion_Count
+FROM 
+    EmployeeTable
+GROUP BY 
+    Department, JobRole, Years_SinceLastPromotion
+ORDER BY 
+    Department, JobRole, YearsSinceLastPromotion;
+WITH PromotionStats AS (
+    SELECT 
+        Department,
+        JobRole,
+        PerformanceRating,
+        EducationLevel,
+        YearsSinceLastPromotion,
+        COUNT(*) AS Promotion_Count
+    FROM 
+        EmployeeTable
+    GROUP BY 
+        Department, JobRole, PerformanceRating, EducationLevel, YearsSinceLastPromotion
+)
+SELECT 
+    TOP 1 
+    Department,
+    JobRole,
+    PerformanceRating,
+    EducationLevel,
+    YearsSinceLastPromotion, 
+    MAX(Promotion_Count) AS Max_Promotion_Count
+FROM 
+    PromotionStats
+ORDER BY 
+    Promotion_Count DESC;
+WITH PromotionStats AS (
+    SELECT 
+        Department,
+        JobRole,
+        PerformanceRating,
+        EducationLevel,
+        YearsSinceLastPromotion,
+        COUNT(*) AS Promotion_Count
+    FROM 
+        EmployeeTable
+    GROUP BY 
+        Department, JobRole, PerformanceRating, EducationLevel, YearsSinceLastPromotion
+)
+SELECT 
+    TOP 1 
+    Department,
+    JobRole,
+    PerformanceRating,
+    EducationLevel,
+    YearsSinceLastPromotion, 
+    MAX(Promotion_Count) AS Max_Promotion_Count
+FROM 
+    PromotionStats
+ORDER BY 
+    Promotion_Count DESC;
+SELECT 
+    PerformanceRating,
+    Years_SinceLast_Promotion,
+    COUNT(*) AS Promotion_Count
+FROM 
+    EmployeeTable
+GROUP BY 
+    PerformanceRating, YearsSinceLastPromotion
+ORDER BY 
+    PerformanceRating, Promotion_Count DESC;
